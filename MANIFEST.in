@@ -1,0 +1,2 @@
+include install.py setup_transcription.py setup_background.py plugin.json mcp.json
+recursive-include docs *.md

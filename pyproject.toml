@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "framedrop"
+version = "0.2.0"
+description = "A local, non-destructive montage editor with MCP, CLI and a visual workspace"
+requires-python = ">=3.11"
+dependencies = []
+license = "0BSD"
+license-files = ["LICENSE"]
+readme = "README.md"
+
+[project.urls]
+Homepage = "https://github.com/mixutin/framedrop"
+Repository = "https://github.com/mixutin/framedrop"
+
+[project.scripts]
+framedrop = "montage_studio.cli:main"
+montage = "montage_studio.cli:main"
+
+[tool.setuptools.package-data]
+montage_studio = ["static/*"]

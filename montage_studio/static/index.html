@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111114">
+  <meta name="description" content="Framedrop — a local AI video editor. Captions, freeze frames, motion, sound and effects on one shared timeline.">
+  <title>Framedrop</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div id="app" class="app-shell">
+    <header class="app-header">
+      <a class="brand" href="/" aria-label="Framedrop home">
+        <img src="/icon.svg" width="34" height="34" alt="">
+        <span>FRAME<em>DROP</em></span>
+      </a>
+      <span class="header-divider"></span>
+      <div class="project-picker">
+        <label class="sr-only" for="project-select">Current project</label>
+        <select id="project-select"><option value="">Choose a project</option></select>
+        <button id="new-project" class="icon-button" title="New project" aria-label="New project" data-icon="plus"></button>
+      </div>
+      <span id="save-status" class="save-status">Local workspace</span>
+      <div class="header-actions">
+        <button id="ai-interface" class="button quiet compact" title="Shared AI editing interface"><span data-icon="terminal"></span><span class="button-label">AI tools</span></button>
+        <button id="undo" class="icon-button" title="Restore the previous saved revision" aria-label="Restore previous saved revision" data-icon="undo" disabled></button>
+        <button id="save" class="button secondary compact" disabled><span data-icon="save"></span><span>Save</span></button>
+        <button id="render-preview" class="button secondary compact" disabled><span data-icon="play"></span><span class="button-label">Render preview</span></button>
+        <button id="render-final" class="button primary compact" disabled><span data-icon="export"></span><span>Export</span></button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="library-panel panel" aria-label="Media and effects library">
+        <div class="panel-heading library-heading">
+          <div class="segmented library-tabs" role="tablist" aria-label="Library view">
+            <button id="assets-tab" class="active" role="tab" aria-selected="true">Media</button>
+            <button id="effects-tab" role="tab" aria-selected="false">Effects</button>
+          </div>
+          <button id="import-media" class="icon-button" title="Import a local file" aria-label="Import a local file" data-icon="plus"></button><button id="scan-library" class="icon-button" title="Rescan the Editing folder" aria-label="Rescan media library" data-icon="refresh"></button>
+        </div>
+        <div class="library-search"><span data-icon="search"></span><input id="library-search" type="search" placeholder="Search your library…" aria-label="Search media and effects" autocomplete="off"><span class="key-hint">/</span></div>
+        <div id="library-filters" class="filter-row" aria-label="Media type filters">
+          <button data-filter="all" class="active">All</button><button data-filter="video">Video</button><button data-filter="audio">Audio</button><button data-filter="overlay">Overlays</button><button data-filter="font">Fonts</button><button data-filter="other">More</button>
+        </div>
+        <div class="library-summary"><span id="library-count">Connecting to your library…</span><span id="library-selection-hint">Drag to timeline</span></div>
+        <div id="asset-grid" class="asset-grid" tabindex="0" aria-label="Library assets"></div>
+        <div id="library-footer" class="library-footer" hidden><button id="load-more" class="button quiet">Load more</button></div>
+        <div class="library-source"><span data-icon="folder"></span><span id="media-root" title="Media source folder">Editing</span></div>
+      </section>
+
+      <section class="viewer-panel panel" aria-label="Video viewer">
+        <div class="panel-heading viewer-heading">
+          <div class="viewer-title"><span class="eyebrow">VIEWER</span><span id="viewer-name">Your next cut starts here</span></div>
+          <div class="segmented viewer-tabs" aria-label="Viewer mode"><button id="view-source" class="active">Source</button><button id="view-render" disabled>Rendered</button></div>
+        </div>
+        <div id="preview-stage" class="preview-stage">
+          <div class="stage-grid"></div>
+          <video id="video-player" preload="metadata" playsinline hidden></video>
+          <img id="image-player" alt="Selected source image" hidden>
+          <div id="audio-art" class="audio-art" hidden><span data-icon="wave"></span><span id="audio-name">Audio source</span></div>
+          <div id="viewer-empty" class="viewer-empty">
+            <div class="empty-frame"><span data-icon="frame"></span><i></i></div>
+            <h1>Make every cut count.</h1>
+            <p>Bring footage to your timeline.<br>Shape it here, or let your AI tools take the controls.</p>
+            <button id="empty-create" class="button secondary"><span data-icon="plus"></span>Create a project</button>
+          </div>
+          <div id="media-error" class="media-error" hidden><span data-icon="info"></span><span>This source cannot play in this browser. You can still use it in an FFmpeg render.</span></div>
+          <span id="preview-badge" class="preview-badge" hidden>SOURCE</span>
+        </div>
+        <div class="transport">
+          <button id="play-pause" class="icon-button play-button" title="Play or pause (Space)" aria-label="Play or pause" data-icon="play" disabled></button>
+          <span id="play-time" class="timecode">00:00.00</span>
+          <input id="playback-seek" class="playback-seek" type="range" min="0" max="1" step="0.01" value="0" aria-label="Playback position" disabled>
+          <span id="play-duration" class="timecode duration">00:00.00</span>
+          <button id="fullscreen" class="icon-button" title="Fullscreen viewer" aria-label="Fullscreen viewer" data-icon="fullscreen"></button>
+        </div>
+        <div class="viewer-caption"><span id="viewer-caption">Source playback is unprocessed. Render a preview to see your complete edit.</span><button id="canvas-shortcut" title="Edit project canvas" class="text-button"><span id="canvas-label">1920 × 1080 · 30 fps</span><span data-icon="settings"></span></button></div>
+        <div id="render-banner" class="render-banner" hidden>
+          <div class="render-banner-top"><span id="render-icon" data-icon="render"></span><strong id="render-heading">Rendering preview</strong><span id="render-percent">0%</span><button id="cancel-render" class="text-button">Cancel</button><button id="review-cutout" class="text-button" hidden>View cutout</button><button id="review-caption-draft" class="text-button" hidden>Review captions</button><a id="download-render" class="text-button" hidden download>Download MP4 <span data-icon="download"></span></a></div>
+          <div class="render-progress"><span id="render-progress-fill"></span></div>
+          <div id="render-message" class="render-message">Preparing your timeline…</div>
+        </div>
+      </section>
+
+      <aside class="inspector-panel panel" aria-label="Selection inspector">
+        <div class="panel-heading inspector-heading"><span class="eyebrow">INSPECTOR</span><span id="inspector-kind" class="subtle-chip">Project</span></div>
+        <div id="inspector-content" class="inspector-content"></div>
+      </aside>
+
+      <section class="timeline-panel panel" aria-label="Project timeline">
+        <div class="timeline-toolbar">
+          <div class="timeline-title"><span data-icon="timeline"></span><strong>Timeline</strong><span id="timeline-summary">No project open</span></div>
+          <div class="timeline-actions"><button id="add-shape" class="button quiet compact" disabled><span data-icon="shape"></span><span>Shape</span></button><button id="add-title" class="button quiet compact" disabled><span data-icon="type"></span><span>Title</span></button><button id="open-captions" class="button quiet compact"><span data-icon="captions"></span><span>Captions</span></button><button id="auto-montage" class="button quiet compact"><span data-icon="sparkles"></span><span>Auto montage</span></button><span class="small-divider"></span><button id="zoom-out" class="icon-button small" title="Zoom out timeline" aria-label="Zoom out timeline" data-icon="minus"></button><input id="timeline-zoom" type="range" min="0.6" max="5" step="0.1" value="1" aria-label="Timeline zoom"><button id="zoom-in" class="icon-button small" title="Zoom in timeline" aria-label="Zoom in timeline" data-icon="plus"></button><button id="fit-timeline" class="text-button">Fit</button></div>
+        </div>
+        <div class="timeline-body">
+          <div class="track-labels"><div class="ruler-label"><span data-icon="clock"></span></div><div class="track-label video-label"><span data-icon="film"></span><span>Video</span></div><div class="track-label overlay-label"><span data-icon="layers"></span><span>Overlays</span></div><div class="track-label shape-label"><span data-icon="shape"></span><span>Shapes</span></div><div class="track-label title-label"><span data-icon="type"></span><span>Titles</span></div><div class="track-label caption-label"><span data-icon="captions"></span><span>Captions</span></div><div class="track-label audio-label"><span data-icon="music"></span><span>Audio</span></div></div>
+          <div id="timeline-scroll" class="timeline-scroll"><div id="timeline-surface" class="timeline-surface"><div id="timeline-ruler" class="timeline-ruler"></div><div id="video-track" class="timeline-track video-track" data-lane="clips"><div class="track-empty">Drop footage here or use + in the media library</div></div><div id="overlay-track" class="timeline-track overlay-track" data-lane="overlays"></div><div id="shape-track" class="timeline-track shape-track"></div><div id="title-track" class="timeline-track title-track" data-lane="titles"></div><div id="caption-track" class="timeline-track caption-track"></div><div id="audio-track" class="timeline-track audio-track" data-lane="audio"></div><div id="timeline-playhead" class="timeline-playhead" hidden></div></div></div>
+        </div>
+        <div class="timeline-bottom"><span id="timeline-tip">One project. The same edit in your app, CLI, and MCP.</span><span id="marker-count"></span></div>
+      </section>
+    </main>
+    <footer class="statusbar"><span><i id="connection-dot" class="status-dot"></i><span id="connection-status">Connecting</span></span><span id="status-detail">Everything stays on this computer</span><span id="status-version">FRAMEDROP</span></footer>
+  </div>
+
+  <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="false"></div>
+  <dialog id="main-dialog" class="main-dialog"><div id="dialog-content"></div></dialog>
+  <div id="boot-error" class="boot-error" hidden><div><span data-icon="info"></span><h1>Couldn’t connect to Framedrop</h1><p id="boot-error-message"></p><button id="retry-connect" class="button primary">Try again</button></div></div>
+</body>
+</html>
