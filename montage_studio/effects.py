@@ -185,6 +185,9 @@ def build_graph(source, recipes, width, height, duration, fps, prefix="fx", *, l
         if filt is not None:
             clauses.append(f"[{current}]{filt}[{target}]")
         if windowed:
-            clauses.append(f"[{out}base][{target}]blend=all_expr='if(gte(T,{start:.17g})*lt(T,{end:.17g}),B,A)'[{out}]")
+            # Normal mode at zero top opacity selects the effect (bottom input).
+            # Disabled blend forwards the original top input. Timeline enable is
+            # evaluated once per frame, avoiding a conditional for every pixel.
+            clauses.append(f"[{out}base][{target}]blend=all_mode=normal:all_opacity=0:enable='gte(t,{start:.17g})*lt(t,{end:.17g})'[{out}]")
         current = out
     return clauses, current

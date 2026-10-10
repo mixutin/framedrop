@@ -148,6 +148,18 @@ class NativeEffectRenderTests(unittest.TestCase):
         self.assertGreater(rendered[6][0]-baseline[6][0], 60)
         self.assertEqual(rendered[9], baseline[9])
 
+    def test_timed_invert_preserves_exact_inactive_pixels_and_exclusive_end(self):
+        source = "color=c=red:size=96x64:rate=12:duration=1"
+        baseline = self.frames([], source)
+        rendered = self.frames([{"name":"invert", "strength":1, "start":1/3, "end":2/3}], source)
+        for index in (0, 1, 2, 3, 8, 9, 10, 11):
+            self.assertEqual(rendered[index], baseline[index], f"Inactive frame {index} must remain exact")
+        for index in (4, 5, 6, 7):
+            red, green, blue = rendered[index][:3]
+            self.assertLess(red, 5)
+            self.assertGreater(green, 250)
+            self.assertGreater(blue, 250)
+
     def test_echo_trail_decays_after_a_bright_frame(self):
         source = "nullsrc=size=96x64:rate=12:duration=1,geq=lum='if(eq(N,6),235,16)':cb=128:cr=128"
         rendered = self.frames([{"name": "echo_trails", "strength": 1}], source)

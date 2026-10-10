@@ -14,9 +14,9 @@ Verified feature suites:
 |---|---:|---|
 | Advanced engine | 8 | Native freeze matches the source frame and remains silent, near-EOF capture, motion across retimed segments, transition integration, sample-accurate clip/loop envelopes, endpoint behavior, malformed input, maximum 64-keyframe expressions |
 | Existing engine | 13 | All native effect and transition recipes, heterogeneous clips, speed segments, overlays, transforms, LUTs, titles, captions, silence, cancellation and source-output protection |
-| Advanced effects and shapes | 12 | Timed effects preserve inactive frames and duration, frame rounding, flash window anchoring, echo trails, arrow direction, ellipse/rectangle geometry, alpha, antialiasing, preview stroke scaling and PNG decoding |
+| Advanced effects and shapes | 13 | Timed effects preserve exact inactive pixels, exclusive end boundaries and duration, frame rounding, flash window anchoring, echo trails, arrow direction, ellipse/rectangle geometry, alpha, antialiasing, preview stroke scaling and PNG decoding |
 
-The complete release suite passes 125 tests, covering persistence, revision conflicts, asset/archive handling, caption exchange, MCP protocol, service behavior, optional-model job handling, and legacy-install migration:
+The complete release suite passes 126 tests, covering persistence, revision conflicts, asset/archive handling, caption exchange, MCP protocol, service behavior, optional-model job handling, and legacy-install migration:
 
 ```bash
 python3 -m unittest discover -s tests -q
