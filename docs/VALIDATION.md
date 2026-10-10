@@ -1,4 +1,4 @@
-# Framedrop 0.2.0 verification
+# Framedrop 0.3.0 verification
 
 The generated-media regression checks exercise actual FFmpeg output, not only filter strings. Run them from the repository directory with FFmpeg and FFprobe available:
 
@@ -16,9 +16,10 @@ Verified feature suites:
 | Advanced engine | 8 | Native freeze matches the source frame and remains silent, near-EOF capture, motion across retimed segments, transition integration, sample-accurate clip/loop envelopes, endpoint behavior, malformed input, maximum 64-keyframe expressions |
 | Existing engine | 13 | All native effect and transition recipes, heterogeneous clips, speed segments, overlays, transforms, LUTs, titles, captions, silence, cancellation and source-output protection |
 | Advanced effects and shapes | 13 | Timed effects preserve exact inactive pixels, exclusive end boundaries and duration, frame rounding, flash window anchoring, echo trails, arrow direction, ellipse/rectangle geometry, alpha, antialiasing, preview stroke scaling and PNG decoding |
+| Native motion graphics | 12 | Independent timed neon words, literal text, custom font coexistence, active/inactive accent windows, fixed expansion centers, real optical-flow cadence, two-sample blur before text, encoder settings, eased audio samples, word timestamp integrity, atomic validation and MCP discovery |
 | Overlay batches | 5 | Batched PNG/ProRes alpha matches sequential layers, identical base audio, finite-source ends, loops/GIFs, fractional frame rates, blend ordering, late-overlay scheduler safety and final-frame coverage after concat timestamp rounding |
 
-The complete release suite passes 131 tests, covering persistence, revision conflicts, asset/archive handling, caption exchange, MCP protocol, service behavior, optional-model job handling, and legacy-install migration:
+The complete release suite passes 143 tests, covering persistence, revision conflicts, asset/archive handling, caption exchange, MCP protocol, service behavior, optional-model job handling, and legacy-install migration:
 
 ```bash
 python3 -m unittest discover -s tests -q
@@ -33,10 +34,17 @@ Background removal and Whisper transcription are optional downloaded-model integ
 
 ## Current limits
 
-- One sequential footage track, with separate media overlay, shape, title, caption and audio layers. Preview rendering shows the full composition; source playback shows original media.
-- SDR software H.264/AAC exports. Speed segments are piecewise constant with pitch-preserving audio, without optical-flow interpolation.
+- One sequential footage track, with separate media overlay, shape, accent, title, caption and audio layers. Preview rendering shows the full composition; source playback shows original media.
+- SDR software H.264/AAC exports. Speed segments are piecewise constant with pitch-preserving audio, with optional motion-compensated optical-flow interpolation. Fast motion, HUDs, and occlusion edges can warp; two-sample blur is an approximation and increases rendering cost.
 - Freeze source selection snaps to nominal frame boundaries; variable-frame-rate capture is approximate. Held footage is silent, while dedicated audio tracks remain audible.
-- Motion/gain keyframes interpolate linearly. Shapes are static callouts; there is no automatic subject tracking or node-based compositor.
+- Motion/gain keyframes support linear and eased intervals. Shapes are static callouts; there is no automatic subject tracking or node-based compositor.
 - External After Effects/Fusion presets remain searchable references and require their original hosts/plugins. Supported media, fonts and LUTs can be imported; host-specific presets are not executed.
 
 Rendering and cached-model inference run locally. A connected AI client can receive requested metadata, preview images and caption text through MCP. Personal projects, media, model caches and workstation-specific verification artifacts are not part of the source distribution.
+
+
+## 0.3 installation and app verification
+
+The release was installed over the existing library with `install.py --register-mcp --start`. A fresh MCP stdio connection advertised version 0.3.0 and the updated word-mode schema. A four-second, 60 fps preview containing independent neon cues, all three accents, animated titles, eased motion, optical flow and motion blur completed through `render_start` / `job_status`.
+
+Browser checks covered the new caption preset/animation fields, real keyboard entry and persistence of animation duration, adding/removing an accent and saving it, the interpolation/blur inspector, and high-quality export controls. A subsequent MCP read confirmed the browser changes. The existing finished montage's JSON was compared before and after and remained unchanged. The browser uses content-versioned JS/CSS URLs so an upgrade refreshes cached UI assets. Already-running MCP clients must reconnect to load updated Python modules and tool schemas.

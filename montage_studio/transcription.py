@@ -40,7 +40,8 @@ def timeline_signature(project: dict) -> str:
     return hashlib.sha256(json.dumps(value,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
 
 
-def start(service,project_id: str,render_job_id: str,language: str="auto",model: str|None=None) -> dict:
+def start(service,project_id: str,render_job_id: str,language: str="auto",model: str|None=None,mode: str="phrases") -> dict:
+    if mode not in ("phrases", "words"): raise StudioError("Caption mode must be phrases or words")
     settings=status(service.config)
     if not settings["installed"] or (model is None and not settings["model_ready"]):raise StudioError(settings.get("message","Offline caption model is not ready"),"transcription_unavailable",409)
     selected_model=model or settings.get("model","base")
@@ -56,7 +57,7 @@ def start(service,project_id: str,render_job_id: str,language: str="auto",model:
     with service.jobs.lock(service.config.state_dir/"render-start.lock"):
         if any(j["status"] in {"queued","running"} for j in service.jobs.list()):raise StudioError("Wait for the active export or transcription to finish, or cancel it first.","render_busy",409)
         jid=new_id("job");directory=service.jobs.directory(jid);directory.mkdir(parents=True)
-        job={"id":jid,"kind":"transcription","project_id":project_id,"project_name":project["name"],"revision":project["revision"],"quality":"transcription","status":"queued","progress":0,"message":"Preparing offline captions","created_at":utcnow(),"updated_at":utcnow(),"language":language,"model":selected_model,"source_render_job_id":render_job_id,"source_path":str(source),"timeline_signature":timeline_signature(project)}
+        job={"id":jid,"kind":"transcription","project_id":project_id,"project_name":project["name"],"revision":project["revision"],"quality":"transcription","status":"queued","progress":0,"message":"Preparing offline captions","created_at":utcnow(),"updated_at":utcnow(),"language":language,"mode":mode,"model":selected_model,"source_render_job_id":render_job_id,"source_path":str(source),"timeline_signature":timeline_signature(project)}
         atomic_json(directory/"job.json",job);atomic_json(directory/"project.json",project);atomic_json(directory/"config.json",service.config.as_dict())
         code_root=str(Path(__file__).resolve().parent.parent)
         env=os.environ.copy();env["PYTHONPATH"]=code_root+os.pathsep+env.get("PYTHONPATH","")
@@ -82,7 +83,8 @@ def apply(service,project_id: str,job_id: str,expected_revision: int,replace: bo
     return service.projects.save(project,expected_revision)
 
 
-def segment_cues(segment) -> list[dict]:
+def segment_cues(segment, mode="phrases") -> list[dict]:
+    if mode not in ("phrases", "words"): raise ValueError("Unknown caption mode")
     words=getattr(segment,"words",None)
     cues=[];buffer=[];start=None;end=None
     def append_cue(text,start,end):
@@ -99,11 +101,14 @@ def segment_cues(segment) -> list[dict]:
     if words:
         for word in words:
             text=str(word.word)
+            if mode == "words":
+                append_cue(text.strip(),word.start,word.end)
+                continue
             if start is not None and (len("".join(buffer))+len(text)>44 or len(buffer)>=8 or float(word.end)-start>3.5):flush()
             if start is None:start=float(word.start)
             end=float(word.end);buffer.append(text)
         flush()
-    elif segment.text.strip():
+    elif mode == "phrases" and segment.text.strip():
         append_cue(segment.text.strip(),segment.start,segment.end)
     return cues
 
@@ -139,11 +144,11 @@ def run_worker(directory: str) -> int:
             segments,info=model.transcribe(str(source),language=None if job["language"]=="auto" else job["language"],beam_size=5,word_timestamps=True,vad_filter=True,condition_on_previous_text=False)
             cues=[]
             for segment in segments:
-                cues.extend(segment_cues(segment))
+                cues.extend(segment_cues(segment, job.get("mode", "phrases")))
                 if len(cues)>2000:raise StudioError("Transcript exceeds 2000 caption cues; transcribe a shorter edit")
                 jobs.update(jid,progress=min(.97,.08+.89*float(segment.end)/max(.1,duration)),message=f"Transcribing speech · {len(cues)} caption cues")
             text=export_captions(cues,"srt");caption_path=location/"draft.srt";caption_path.write_text(text,encoding="utf-8")
-            result={"captions":cues,"cue_count":len(cues),"language":info.language,"language_probability":float(info.language_probability),"model":job.get("model",settings.get("model","base")),"draft":True,"path":str(caption_path),"message":"Review transcription text and timing before applying. Music, effects, accents and overlapping speech can reduce accuracy."}
+            result={"mode":job.get("mode", "phrases"),"captions":cues,"cue_count":len(cues),"language":info.language,"language_probability":float(info.language_probability),"model":job.get("model",settings.get("model","base")),"draft":True,"path":str(caption_path),"message":"Review transcription text and timing before applying. Music, effects, accents and overlapping speech can reduce accuracy."}
             atomic_json(location/"transcript.json",result)
             jobs.update(jid,status="completed",progress=1,message=f"Caption draft ready · {len(cues)} cues",result=result)
             return 0

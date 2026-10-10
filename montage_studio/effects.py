@@ -32,7 +32,7 @@ _RECIPES = (
     ("pixelate", "Pixelate", "distortion", "Enlarge pixels into crisp mosaic blocks.", .5),
     ("edge_glow", "Neon edges", "light", "Screen-blend glowing, color-enhanced contours.", .65),
     ("posterize", "Posterize", "color", "Reduce each color channel to bold stepped tones.", .65),
-    ("echo_trails", "Echo trails", "motion", "Blend recent frames into weighted motion trails without changing timing.", .5),
+    ("echo_trails", "Echo trails", "motion", "Intentional ghosting from recent frames; use short windows for crisp gameplay. Does not synthesize missing frames.", .5),
     ("scanlines", "Scanlines", "texture", "Dark horizontal lines for a CRT-inspired texture.", .5),
     ("invert", "Invert colors", "color", "Blend toward a photographic color negative.", 1.),
 )

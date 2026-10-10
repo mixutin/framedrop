@@ -78,7 +78,7 @@ def build_parser():
     cc.add_parser("status")
     ci=cc.add_parser("import");ci.add_argument("project_id");ci.add_argument("file");ci.add_argument("--revision",type=int,required=True);ci.add_argument("--format",choices=["srt","vtt"]);ci.add_argument("--offset",type=float,default=0);ci.add_argument("--append",action="store_true")
     ce=cc.add_parser("export");ce.add_argument("project_id");ce.add_argument("--format",choices=["srt","vtt"],default="srt")
-    ct=cc.add_parser("transcribe");ct.add_argument("project_id");ct.add_argument("--render-job",required=True);ct.add_argument("--language",default="auto");ct.add_argument("--model",choices=["tiny","base","small","medium","large-v3"])
+    ct=cc.add_parser("transcribe");ct.add_argument("project_id");ct.add_argument("--render-job",required=True);ct.add_argument("--language",default="auto");ct.add_argument("--mode",choices=["phrases","words"],default="phrases");ct.add_argument("--model",choices=["tiny","base","small","medium","large-v3"])
     ca=cc.add_parser("apply");ca.add_argument("project_id");ca.add_argument("job_id");ca.add_argument("--revision",type=int,required=True);ca.add_argument("--append",action="store_true")
     ui=commands.add_parser("ui",help="Run the local visual editor");ui.add_argument("--port",type=int);ui.add_argument("--open",action="store_true",dest="open_browser")
     worker=commands.add_parser("_worker",help=argparse.SUPPRESS);worker.add_argument("directory")
@@ -151,7 +151,7 @@ def main(argv=None):
             if args.action=="status":result=service.call("transcription_status",{})
             elif args.action=="import":result=service.call("captions_import",{"project_id":args.project_id,"expected_revision":args.revision,"text":Path(args.file).expanduser().read_text(encoding="utf-8-sig"),"format":args.format or ("vtt" if Path(args.file).suffix.lower()==".vtt" else "srt"),"offset":args.offset,"replace":not args.append})
             elif args.action=="export":result=service.call("captions_export",{"project_id":args.project_id,"format":args.format})
-            elif args.action=="transcribe":result=service.call("captions_transcribe",{"project_id":args.project_id,"render_job_id":args.render_job,"language":args.language,**({"model":args.model} if args.model else {})})
+            elif args.action=="transcribe":result=service.call("captions_transcribe",{"project_id":args.project_id,"render_job_id":args.render_job,"language":args.language,"mode":args.mode,**({"model":args.model} if args.model else {})})
             elif args.action=="apply":result=service.call("captions_apply",{"project_id":args.project_id,"job_id":args.job_id,"expected_revision":args.revision,"replace":not args.append})
         output(result);return 0
     except KeyboardInterrupt:

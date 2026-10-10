@@ -4,6 +4,7 @@ from __future__ import annotations
 import math
 
 MAX_KEYFRAMES = 64
+EASINGS = ("linear", "ease_in", "ease_out", "ease_in_out")
 
 
 def _number(value, lo, hi, label):
@@ -26,6 +27,8 @@ def validate_keyframes(keyframes, duration, fields, label):
         if when <= previous:
             raise ValueError(f"{label} keyframe times must be strictly increasing")
         previous = when
+        if keyframe.get("easing", "linear") not in EASINGS:
+            raise ValueError(f"{label}.easing must be one of {', '.join(EASINGS)}")
         for field, bounds in fields.items():
             _number(keyframe.get(field), *bounds, f"{label}.{field}")
 
@@ -43,7 +46,7 @@ def _literal(number):
 
 
 def expression(keyframes, field, clock):
-    """Piecewise-linear ramps, with constant extrapolation at both endpoints.
+    """Bounded eased ramps, with constant extrapolation at both endpoints.
 
     Sum of bounded ramps avoids deeply nested conditional expressions. Clock and
     field are internal constants; all interpolated data passed validation first.
@@ -52,8 +55,13 @@ def expression(keyframes, field, clock):
     for left, right in zip(keyframes, keyframes[1:]):
         delta = float(right[field])-float(left[field])
         if delta:
-            value += (f"+({_literal(delta)})*clip((({clock})-({_literal(left['time'])}))/"
-                      f"({_literal(float(right['time'])-float(left['time']))}),0,1)")
+            ramp = (f"clip((({clock})-({_literal(left['time'])}))/"
+                    f"({_literal(float(right['time'])-float(left['time']))}),0,1)")
+            easing = left.get("easing", "linear")
+            if easing == "ease_in": ramp = f"pow({ramp},3)"
+            elif easing == "ease_out": ramp = f"(1-pow(1-({ramp}),3))"
+            elif easing == "ease_in_out": ramp = f"(pow({ramp},2)*(3-2*({ramp})))"
+            value += f"+({_literal(delta)})*({ramp})"
     return value
 
 

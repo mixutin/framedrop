@@ -54,7 +54,7 @@ class Service:
 
     def status(self) -> dict:
         deps=self.config.dependency_status()
-        return {"app":"Framedrop","version":__version__,"media_root":str(self.config.media_root),"workspace":str(self.config.workspace),"ffmpeg":deps["ffmpeg"],"ffprobe":deps["ffprobe"],"asset_count":self.library.list(limit=1)["total"],"project_count":len(self.projects.list()),"running_jobs":len([j for j in self.jobs.list() if j["status"] in {"queued","running"}]),"capabilities":["Non-destructive JSON timelines","MCP stdio","CLI automation","Local visual editor","Sequential FFmpeg exports","Effects and overlays","Native freeze frames","Animated pan and zoom","Timed effects","Native arrows, circles and rectangles","Audio gain keyframes","Local file import","Optional offline background removal","Velocity segments","Music and SFX","Text and fonts","Color correction and LUTs","Crop, zoom, rotation and flips","Audio fades and loudness normalization","Manual captions and SRT/VTT import/export","Optional offline speech transcription","Tempo-grid montages","Asset archive browsing"],"limits":{"parallel_renders":1,"default_ffmpeg_threads":self.config.threads,"preview_longest_edge":960},"compatibility":COMPATIBILITY}
+        return {"app":"Framedrop","version":__version__,"media_root":str(self.config.media_root),"workspace":str(self.config.workspace),"ffmpeg":deps["ffmpeg"],"ffprobe":deps["ffprobe"],"asset_count":self.library.list(limit=1)["total"],"project_count":len(self.projects.list()),"running_jobs":len([j for j in self.jobs.list() if j["status"] in {"queued","running"}]),"capabilities":["Non-destructive JSON timelines","MCP stdio","CLI automation","Local visual editor","Sequential FFmpeg exports","Effects and overlays","Native freeze frames","Animated pan and zoom","Timed effects","Animated neon lyrics and titles","Native kill accents and light sweeps","Eased keyframes","Word-level transcription","Optional optical-flow slow motion","Motion-compensated two-sample blur","High-quality export profile","Native arrows, circles and rectangles","Audio gain keyframes","Local file import","Optional offline background removal","Velocity segments","Music and SFX","Text and fonts","Color correction and LUTs","Crop, zoom, rotation and flips","Audio fades and loudness normalization","Manual captions and SRT/VTT import/export","Optional offline speech transcription","Tempo-grid montages","Asset archive browsing"],"limits":{"parallel_renders":1,"default_ffmpeg_threads":self.config.threads,"preview_longest_edge":960},"compatibility":COMPATIBILITY}
 
     def call(self,name: str,arguments: dict|None=None) -> dict:
         definition=BY_NAME.get(name)
@@ -79,7 +79,13 @@ class Service:
             return {"path":str(path),"mime_type":"image/jpeg","asset_id":args["asset_id"],"time":args.get("time",0),"note":"Local preview image; inspect with the host's image viewer."}
         if name=="effects_list":
             from .effects import list_effects, TRANSITIONS
-            return {"effects":list_effects(),"transitions":list(TRANSITIONS),"compatibility":COMPATIBILITY}
+            from .graphics import ACCENTS, ANIMATIONS
+            from .automation import EASINGS
+            return {"effects":list_effects(),"transitions":list(TRANSITIONS),"accents":list(ACCENTS),
+                    "text_animations":list(ANIMATIONS),"caption_presets":["clean","bold","boxed","neon"],
+                    "easing":list(EASINGS),"interpolation":["duplicate","optical_flow"],
+                    "export_profiles":{"standard":{"intermediate_crf":16,"final_crf":18},"high":{"intermediate_crf":12,"final_crf":16}},
+                    "compatibility":COMPATIBILITY}
         if name=="project_list": return {"projects":self.projects.list()}
         if name=="project_create": return self.projects.create(**args)
         if name=="project_get": return self.projects.get(**args)

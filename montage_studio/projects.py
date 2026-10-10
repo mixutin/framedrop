@@ -76,7 +76,7 @@ class ProjectStore:
         if not isinstance(name,str) or not name.strip() or len(name)>120: raise StudioError("Choose a project name from 1 to 120 characters")
         data["name"]=name.strip()
         data["canvas"]=self._canvas(data.get("canvas",{}))
-        for collection,limit in [("clips",150),("audio",64),("overlays",64),("shapes",64),("titles",64),("captions",2000),("markers",300)]:
+        for collection,limit in [("clips",150),("audio",64),("overlays",64),("shapes",64),("titles",64),("captions",2000),("accents",128),("markers",300)]:
             data.setdefault(collection,[])
             if not isinstance(data[collection],list) or len(data[collection])>limit: raise StudioError(f"{collection} must be an array with at most {limit} items")
             if any(not isinstance(x,dict) for x in data[collection]): raise StudioError(f"Each {collection} entry must be an object")
@@ -95,7 +95,7 @@ class ProjectStore:
     def _new_document(self,name: str,width: int=1920,height: int=1080,fps: float=30) -> dict:
         """Build a new project without touching persistent storage."""
         now=utcnow()
-        data={"schema_version":1,"id":new_id("p"),"name":name,"revision":0,"created_at":now,"updated_at":now,"canvas":self._canvas({"width":width,"height":height,"fps":fps}),"clips":[],"audio":[],"overlays":[],"shapes":[],"titles":[],"markers":[],"normalize_audio":True}
+        data={"schema_version":1,"id":new_id("p"),"name":name,"revision":0,"created_at":now,"updated_at":now,"canvas":self._canvas({"width":width,"height":height,"fps":fps}),"clips":[],"audio":[],"overlays":[],"shapes":[],"titles":[],"accents":[],"markers":[],"normalize_audio":True}
         if not isinstance(name,str) or not name.strip() or len(name)>120: raise StudioError("Choose a project name from 1 to 120 characters")
         data["name"]=name.strip()
         return data
@@ -165,6 +165,7 @@ class ProjectStore:
             if not isinstance(op,dict): raise StudioError("Every operation must be an object")
             action=op.get("op","")
             if action=="set_canvas": data["canvas"]={**data["canvas"],**op.get("canvas",{})};continue
+            if action=="set_export_profile": data["export_profile"]=op.get("export_profile");continue
             if action=="set_caption_style": data["caption_style"]={**data.get("caption_style",{}),**op.get("caption_style",{})};continue
             if action=="rename": data["name"]=op.get("name");continue
             if action=="set_markers": data["markers"]=op.get("markers");continue
@@ -172,9 +173,9 @@ class ProjectStore:
                 ids=op.get("clip_ids",[]); existing={x["id"]:x for x in data["clips"]}
                 if len(ids)!=len(existing) or len(set(ids))!=len(ids) or set(ids)!=set(existing): raise StudioError("reorder_clips must list every clip ID exactly once")
                 data["clips"]=[existing[x] for x in ids];continue
-            match=re.fullmatch(r"(add|update|remove)_(clip|audio|overlay|shape|title|caption)",action)
+            match=re.fullmatch(r"(add|update|remove)_(clip|audio|overlay|shape|title|caption|accent)",action)
             if not match: raise StudioError("Unknown edit operation: "+str(action))
-            mode,kind=match.groups(); collection={"clip":"clips","audio":"audio","overlay":"overlays","shape":"shapes","title":"titles","caption":"captions"}[kind]
+            mode,kind=match.groups(); collection={"clip":"clips","audio":"audio","overlay":"overlays","shape":"shapes","title":"titles","caption":"captions","accent":"accents"}[kind]
             data.setdefault(collection,[])
             if mode=="add":
                 value=op.get(kind)
@@ -187,6 +188,7 @@ class ProjectStore:
                         defaults|={"in":0,"out":min(10,duration),"volume":.7,"fade_in":.1,"fade_out":.3,"loop":False}
                     if kind=="overlay": defaults|={"in":0,"duration":2,"opacity":.6,"blend":"screen","width":1,"x":.5,"y":.5,"loop":False}
                     if kind=="shape": defaults|={"kind":"ellipse","duration":2,"x":.3,"y":.3,"x2":.7,"y2":.7,"color":"#ff3030","stroke_width":12,"opacity":1}
+                    if kind=="accent": defaults|={"kind":"impact_ring","duration":.4,"size":.25,"x":.5,"y":.5,"color":"#ff62c6","opacity":.8,"rotation":0}
                     if kind=="title": defaults|={"text":"Title","duration":2,"font_asset_id":None,"font_size":64,"x":.5,"y":.8,"color":"#ffffff","box":True,"fade":.15}
                     if kind=="caption": defaults|={"text":"Caption","end":2}
                     value=defaults|value

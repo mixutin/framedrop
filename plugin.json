@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "framedrop",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "AI-assisted local video editing with native freeze frames, motion, captions, callouts, cutouts and audio automation.",
   "author": {
     "name": "mixutin"

@@ -8,6 +8,7 @@ final normalization/limiter. Clip and transition sections share one video format
 from __future__ import annotations
 
 import functools
+import hashlib
 import errno
 import json
 import math
@@ -19,7 +20,7 @@ import shutil
 import subprocess
 import time
 
-from . import automation, effects, shapes
+from . import automation, effects, shapes, graphics
 
 FFMPEG = os.environ.get("MONTAGE_FFMPEG", "ffmpeg")
 FFPROBE = os.environ.get("MONTAGE_FFPROBE", "ffprobe")
@@ -175,8 +176,10 @@ def validate_project(project, resolve_asset):
         if w % 2 or h % 2:
             warnings.append("Odd canvas dimensions will be rounded down to even dimensions for H.264.")
     check("Canvas", canvas_check)
+    if project.get("export_profile", "standard") not in ("standard", "high"):
+        errors.append("export_profile must be standard or high")
     collections = {}
-    for name, limit in (("clips", 200), ("audio", 64), ("overlays", 64), ("shapes", 128), ("titles", 128), ("captions", 2000)):
+    for name, limit in (("clips", 200), ("audio", 64), ("overlays", 64), ("shapes", 128), ("titles", 128), ("captions", 2000), ("accents", 128)):
         value = project.get(name, [])
         if not isinstance(value, list) or len(value) > limit:
             errors.append(f"{name} must be a list with at most {limit} items")
@@ -199,6 +202,9 @@ def validate_project(project, resolve_asset):
             if not _is_image(asset) and metadata["duration"] and end > metadata["duration"]+.06:
                 raise ValueError(f"out {end:g}s exceeds source duration {metadata['duration']:.3f}s")
             _number(clip.get("speed", 1), .125, 8, "speed")
+            if clip.get("interpolation", "duplicate") not in ("duplicate", "optical_flow"):
+                raise ValueError("interpolation must be duplicate or optical_flow")
+            _number(clip.get("motion_blur", 0), 0, 1, "motion_blur")
             _number(clip.get("volume", 1), 0, 4, "volume")
             if clip.get("fit", project.get("canvas", {}).get("fit", "cover")) not in ("cover", "contain"):
                 raise ValueError("fit must be cover or contain")
@@ -322,8 +328,13 @@ def validate_project(project, resolve_asset):
         check(f"Overlay {index+1}", overlay_check)
     for index, shape in enumerate(collections["shapes"]):
         check(f"Shape {index+1}", lambda shape=shape: shapes.validate_shape(shape, duration))
+    for index, accent in enumerate(collections["accents"]):
+        check(f"Accent {index+1}", lambda accent=accent: graphics.validate_accent(accent))
+        if isinstance(accent, dict) and isinstance(accent.get("start", 0), (int, float)) and accent.get("start", 0) >= duration:
+            warnings.append(f"Accent {index+1} starts after the timeline and will be skipped.")
     for index, title in enumerate(collections["titles"]):
         def title_check():
+            graphics.validate_text_motion(title)
             text = title.get("text", "")
             if not isinstance(text, str) or len(text) > 4000 or "\x00" in text:
                 raise ValueError("Text must contain at most 4000 characters without NUL")
@@ -345,8 +356,9 @@ def validate_project(project, resolve_asset):
         if not isinstance(supplied, dict):
             raise ValueError("caption_style must be an object")
         style = {**CAPTION_STYLE, **supplied}
-        if style["preset"] not in ("clean", "bold", "boxed"):
-            raise ValueError("preset must be clean, bold, or boxed")
+        graphics.validate_text_motion(style)
+        if style["preset"] not in ("clean", "bold", "boxed", "neon"):
+            raise ValueError("preset must be clean, bold, boxed, or neon")
         if style["position"] not in ("bottom", "top", "center"):
             raise ValueError("position must be bottom, top, or center")
         _number(style["font_size"], 8, 512, "font_size")
@@ -428,7 +440,30 @@ def render_plan(project, resolve_asset, quality="preview"):
     warnings = list(validation["warnings"])
     if abs(rendered-validation["duration"]) > .001:
         warnings.append("Clip and speed-segment endpoints are rounded to whole video frames.")
+    cadence = []
+    for index, clip in enumerate(project["clips"]):
+        asset = resolve_asset(clip["asset_id"])
+        if clip.get("freeze") or _is_image(asset):
+            continue
+        source_fps = probe(asset["path"])["fps"]
+        rates = [source_fps*s["speed"] for s in _segments(clip, fps)]
+        low = min(rates)
+        interpolation = clip.get("interpolation", "duplicate")
+        cadence.append({"clip_id": clip.get("id"), "source_fps": source_fps,
+                        "minimum_unique_fps": low, "output_fps": fps, "interpolation": interpolation})
+        if low < fps*.95:
+            if interpolation == "optical_flow":
+                warnings.append(f"Clip {index+1}: optical flow synthesizes frames from {low:.2f} unique fps; inspect fast movement and HUD edges for artifacts. Rendering is slower.")
+            else:
+                warnings.append(f"Clip {index+1}: only {low:.2f} unique fps at {fps:g} fps output. Duplicated frames can stutter; use real-time footage, a higher-rate source, or optical_flow interpolation.")
+        if any(e.get("name") == "echo_trails" and e.get("start", 0) == 0 and e.get("end", clip_duration(clip)) >= clip_duration(clip) for e in clip.get("effects", [])):
+            warnings.append(f"Clip {index+1}: full-length echo trails create ghosting; use short windows for sharp gameplay.")
+        if clip.get("motion_blur", 0):
+            warnings.append(f"Clip {index+1}: motion blur samples at twice output fps using optical flow when needed. It increases render time and can distort fast movement; inspect the preview.")
+    high = quality == "final" and project.get("export_profile") == "high"
     return {"quality": quality, "width": width, "height": height, "fps": fps,
+            "export_profile": project.get("export_profile", "standard"), "final_crf": 23 if quality == "preview" else 16 if high else 18,
+            "cadence": cadence, "accent_count": len(project.get("accents", [])),
             "duration": rendered, "requested_duration": validation["duration"],
             "stages": [{"name": "normalize_clips", "count": len(lengths)},
                        {"name": "transition_sections", "count": sum(t > 0 for t in transitions)},
@@ -437,11 +472,11 @@ def render_plan(project, resolve_asset, quality="preview"):
                        {"name": "mix_audio", "count": len(project.get("audio", []))},
                        {"name": "titles_and_export", "count": 1}],
             "caption_count": len(project.get("captions", [])),
-            "caption_method": "Literal timed captions burned with libass in one export pass",
+            "caption_method": "Literal timed captions, animated neon words and native vector accents share one libass export pass",
             "warnings": warnings, "threads": THREADS,
             "video_codec": "h264", "audio_codec": "aac", "audio_sample_rate": 48000,
-            "speed_method": "Piecewise constant retiming with pitch-preserving audio; not optical flow.",
-            "animation_method": "Linear motion and sample-accurate volume keyframes in local output seconds, before transitions.",
+            "speed_method": "Piecewise constant retiming with pitch-preserving audio; optional motion-compensated optical flow per clip.",
+            "animation_method": "Eased motion and sample-accurate volume keyframes in local output seconds, before transitions.",
             "freeze_method": "Native frame hold at absolute source time; silent, with duration independent of speed.",
             "audio_normalization": "Single-pass dynamic loudness normalization to -16 LUFS" if project.get("normalize_audio", True) else "Peak limiter"}
 
@@ -527,7 +562,7 @@ class _Runner:
 
 def _codec(quality):
     return ["-c:v", "libx264", "-preset", "veryfast" if quality == "preview" else "fast",
-            "-crf", "19" if quality == "preview" else "16", "-pix_fmt", "yuv420p", "-threads", str(THREADS),
+            "-crf", "19" if quality == "preview" else "12" if quality == "high" else "16", "-pix_fmt", "yuv420p", "-threads", str(THREADS),
             "-c:a", "pcm_f32le", "-ar", "48000", "-ac", "2"]
 
 
@@ -754,13 +789,15 @@ def _caption_font(asset, work):
         raise RenderError("This caption font's family name cannot safely be represented in ASS; choose another font")
     folder = work/"caption-fonts"
     folder.mkdir(exist_ok=True)
-    _safe_link(asset["path"], folder/("caption-font"+Path(asset["path"]).suffix.lower()))
+    _safe_link(asset["path"], folder/("font-"+hashlib.sha256(str(asset["path"]).encode()).hexdigest()[:16]+Path(asset["path"]).suffix.lower()))
     return family
 
 
 def _write_captions(project, resolve_asset, asset_cache, work, duration):
     cues = project.get("captions", [])
-    if not cues:
+    titles = [t for t in project.get("titles", []) if graphics.animated_title(t)]
+    accents = project.get("accents", [])
+    if not cues and not titles and not accents:
         return None, 0
     style = {**CAPTION_STYLE, **project.get("caption_style", {})}
     family = "DejaVu Sans"
@@ -769,7 +806,7 @@ def _write_captions(project, resolve_asset, asset_cache, work, duration):
     canvas = project.get("canvas", {})
     width, height = int(canvas.get("width", 1920)), int(canvas.get("height", 1080))
     alignment = {"bottom": 2, "top": 8, "center": 5}[style["position"]]
-    bold = -1 if style["preset"] == "bold" else 0
+    bold = -1 if style["preset"] in ("bold", "neon") else 0
     border = 3 if style["preset"] == "boxed" else 1
     shadow = 0 if style["preset"] == "boxed" else 1
     margin = int(style["margin"])
@@ -786,19 +823,47 @@ def _write_captions(project, resolve_asset, asset_cache, work, duration):
         end = math.floor(min(duration, float(cue["end"]))*100+1e-7)
         if end <= start:
             continue
-        lines.append(f"Dialogue: 0,{_ass_timestamp(start)},{_ass_timestamp(end)},Caption,,0,0,0,,{_ass_text(cue['text'])}")
+        y = {"bottom": height-margin, "top": margin, "center": height/2}[style["position"]]
+        for a, b, layer, payload in graphics.text_events(style, (end-start)/100, width/2, y, _ass_text(cue["text"]), alignment=alignment):
+            lines.append(f"Dialogue: {20+layer},{_ass_timestamp(start+round(a*100))},{_ass_timestamp(start+round(b*100))},Caption,,0,0,0,,{payload}")
         count += 1
-    if not count:
+    def event(start, end, layer, name, payload):
+        a = math.ceil(float(start)*100-1e-7)
+        b = math.floor(min(duration,float(end))*100+1e-7)
+        if b > a:
+            lines.append(f"Dialogue: {layer},{_ass_timestamp(a)},{_ass_timestamp(b)},{name},,0,0,0,,{payload}")
+    for index, title in enumerate(titles):
+        font = "DejaVu Sans"
+        if title.get("font_asset_id"):
+            font = _caption_font(_asset(title["font_asset_id"], resolve_asset, asset_cache), work)
+        name = f"Title{index}"
+        box = 3 if title.get("box", True) else 1
+        style_line = f"Style: {name},{font},{float(title.get('font_size',64))},{_ass_color(title.get('color','#ffffff'))},&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,{box},1,0,5,0,0,0,1"
+        lines.insert(lines.index("[Events]")-1, style_line)
+        start = math.ceil(float(title.get("start",0))*100-1e-7)/100
+        end = math.floor(min(duration,float(title.get("start",0))+float(title["duration"]))*100+1e-7)/100
+        if end <= start: continue
+        for a,b,layer,payload in graphics.text_events(title,end-start,float(title.get("x",.5))*width,float(title.get("y",.8))*height,_ass_text(title["text"])):
+            event(start+a,start+b,10+layer,name,payload)
+    for accent in accents:
+        start = math.ceil(float(accent.get("start",0))*100-1e-7)/100
+        end = math.floor(min(duration,float(accent.get("start",0))+float(accent.get("duration",.4)))*100+1e-7)/100
+        if end <= start: continue
+        for layer, payload in graphics.accent_layers(accent,width,height,end-start):
+            event(start,end,layer,"Caption",payload)
+    if not any(line.startswith("Dialogue:") for line in lines):
         return None, 0
     path = work/"captions.ass"
     path.write_text("\n".join(lines)+"\n", encoding="utf-8")
     # Only generated constant basenames enter the filter, independent of user
     # paths. Script resolution scales caption typography for preview rendering.
-    return "ass=filename=captions.ass:fontsdir=caption-fonts" if style["font_asset_id"] else "ass=filename=captions.ass", count
+    return "ass=filename=captions.ass:fontsdir=caption-fonts" if (work/"caption-fonts").exists() else "ass=filename=captions.ass", count
 
 
 def render_project(project, resolve_asset, output_path, work_dir, quality="preview", progress=None, cancelled=None):
     plan = render_plan(project, resolve_asset, quality)
+    if quality == "final" and project.get("export_profile") == "high":
+        quality = "high"
     output = Path(output_path).expanduser().resolve()
     work = Path(work_dir).expanduser().resolve()
     if output.exists():
@@ -852,6 +917,17 @@ def render_project(project, resolve_asset, output_path, work_dir, quality="previ
             hold = "trim=end_frame=1,setpts=PTS-STARTPTS," if frozen else ""
             pad = f"tpad=stop_mode=clone:stop_duration={segment_duration:.9f}"
             cadence = f"{pad},fps={fps:.9f}" if frozen else f"fps={fps:.9f},{pad}"
+            blur = float(clip.get("motion_blur", 0)) if not frozen and not _is_image(asset) else 0
+            sample_fps = fps*2 if blur else fps
+            if not frozen and not _is_image(asset) and (blur or clip.get("interpolation") == "optical_flow") and metadata["fps"]*segment["speed"] < sample_fps*.95:
+                # minterpolate needs lookahead. Clone a bounded tail before it,
+                # then trim to the exact frame-rounded segment duration.
+                cadence = (f"tpad=stop_mode=clone:stop_duration={max(.25,3/max(1,metadata['fps']*segment['speed'])):.9f},"
+                           f"minterpolate=fps={sample_fps:.9f}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1:scd=fdiff:scd_threshold=10,{pad}")
+            elif blur:
+                cadence = f"fps={sample_fps:.9f},{pad}"
+            if blur:
+                cadence += f",tmix=frames=2:weights='{blur:.9f} 1',fps={fps:.9f}"
             vf = f"[0:v:0]{hold}setpts=(PTS-STARTPTS)/{segment['speed']:.9f},{_fit(width,height,fit,background,clip.get('transform'))}{_color_filter(clip)},setsar=1,{cadence},trim=duration={segment_duration:.9f},settb=AVTB,format=yuv420p[v]"
             af = f"[{0 if has_audio else 1}:a:0]asetpts=PTS-STARTPTS,{_atempo(segment['speed']) if has_audio else 'anull'},aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,volume={float(clip.get('volume',1)):.9f},apad=whole_dur={segment_duration:.9f},atrim=duration={segment_duration:.9f},asetpts=PTS-STARTPTS[a]"
             runner.run(args+["-filter_complex", vf+";"+af, "-map", "[v]", "-map", "[a]",
@@ -986,6 +1062,8 @@ def render_project(project, resolve_asset, output_path, work_dir, quality="previ
         base = target
     title_filters = []
     for index, title in enumerate(project.get("titles", [])):
+        if graphics.animated_title(title):
+            continue
         start, length = float(title.get("start", 0)), float(title["duration"])
         if start >= duration or not title.get("text"):
             continue
@@ -1016,7 +1094,7 @@ def render_project(project, resolve_asset, output_path, work_dir, quality="previ
     # A finite integer sample format also sanitizes loudnorm's NaN output for
     # completely silent, very short clips on some FFmpeg builds.
     args += ["-af", normalize+f",aresample=48000:osf=s16,apad=whole_dur={duration:.9f},atrim=duration={duration:.9f}",
-             "-c:v", "libx264", "-preset", "veryfast" if quality == "preview" else "medium", "-crf", "23" if quality == "preview" else "18",
+             "-c:v", "libx264", "-preset", "veryfast" if quality == "preview" else "medium", "-crf", str(plan["final_crf"]),
              "-threads", str(THREADS), "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
              "-movflags", "+faststart", "-t", f"{duration:.9f}", str(final)]
     runner.run(args, duration, "Encoding the finished MP4")
@@ -1048,6 +1126,6 @@ def render_project(project, resolve_asset, output_path, work_dir, quality="previ
                 raise
     runner.progress(1., "Render complete")
     return {"path": str(output), **metadata, "width": width, "height": height, "fps": fps,
-            "quality": quality, "timeline_duration": duration, "warnings": plan["warnings"],
+            "quality": plan["quality"], "export_profile": plan["export_profile"], "timeline_duration": duration, "warnings": plan["warnings"],
             "captions_burned": caption_count,
             "work_dir": str(work), "audio_normalization": plan["audio_normalization"]}

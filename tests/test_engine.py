@@ -265,7 +265,9 @@ class EngineTests(unittest.TestCase):
                 self.assertEqual(script.count("Dialogue:"), 1)
                 if "font" in self.assets:
                     self.assertIn("DejaVu Sans", script)
-                    self.assertTrue((self.case/preset/"caption-fonts/caption-font.ttf").exists())
+                    fonts = list((self.case/preset/"caption-fonts").glob("*.ttf"))
+                    self.assertEqual(len(fonts), 1)
+                    self.assertEqual(fonts[0].resolve(), Path(self.assets["font"]["path"]).resolve())
         self.assertNotEqual(active_frames[0], active_frames[1])
         self.assertNotEqual(active_frames[0], active_frames[2])
         project["titles"] = []

@@ -20,3 +20,10 @@
 @media(min-width:1700px){.workspace{grid-template-rows:minmax(410px,1fr) 357px}.timeline-body{height:267px}.timeline-surface{height:258px}}
 @media(max-width:980px){.workspace{grid-template-rows:430px 345px auto}.timeline-toolbar{flex-wrap:wrap;height:auto;min-height:47px;padding-top:5px;padding-bottom:5px}.timeline-actions{flex-wrap:wrap}.timeline-title{min-width:55px}}
 @media(max-width:600px){.timeline-panel{height:355px}.timeline-toolbar{min-height:59px;gap:3px}.timeline-title{width:100%;padding-left:2px}.timeline-actions{width:100%;justify-content:space-between}.brand>span{display:none}}
+
+/* Native motion graphics share the compact auxiliary timeline row height. */
+.track-label.accent-label,.accent-track{height:34px}.accent-label{color:#e6a0db}.timeline-item.accent-item{top:5px;height:24px;background:#492d4a;border-color:#805582;color:#efc3f0}.timeline-item.accent-item::after{display:none}.timeline-item.accent-item.selected{border-color:var(--lime)}.timeline-item.accent-item .timeline-item-content{padding:5px 7px;flex-direction:row;align-items:center;gap:6px}
+.workspace{grid-template-rows:minmax(310px,1fr) 380px}.timeline-surface{height:292px}
+@media(min-width:1700px){.workspace{grid-template-rows:minmax(410px,1fr) 391px}}
+@media(max-width:980px){.workspace{grid-template-rows:430px 379px auto}.timeline-body{height:301px}.timeline-surface{height:292px}}
+@media(max-width:600px){.timeline-panel{height:389px}}

@@ -11,6 +11,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from montage_studio import __version__
 from montage_studio.config import Config
 
 
@@ -75,7 +76,7 @@ class InstallMigrationTests(unittest.TestCase):
             # a space; no editor workspace is opened by --version.
             finished = subprocess.run([str(command), "--version"], capture_output=True, text=True,
                                       env=self.environment, timeout=10, check=True)
-            self.assertIn("Framedrop 0.2.0", finished.stdout)
+            self.assertIn(f"Framedrop {__version__}", finished.stdout)
         self.assertEqual(self.processes, [])
 
     def test_upgrade_reuses_legacy_config_and_preserves_projects_history_models(self):

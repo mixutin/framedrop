@@ -1,4 +1,4 @@
-# Framedrop 0.2.0 timeline and automation reference
+# Framedrop 0.3.0 timeline and automation reference
 
 All three interfaces edit the same schema-version-1 project. Seconds are decimal numbers. Asset IDs come from the catalog; do not put source paths or FFmpeg filter text in the timeline. A project retains its ID when edited. `revision` changes on every saved edit, and `expected_revision` is required by save/edit/restore tools.
 
@@ -107,7 +107,7 @@ Crop anchors range from 0 to 1; zoom from 1 to 4. With `fit: "contain"`, anchors
 }
 ```
 
-Each list accepts at most 64 keyframes with finite, strictly increasing `time` values between zero and the rendered clip duration. All shown fields are required. Values interpolate linearly; the first and last values hold outside their keyframe range. An empty list disables that automation. Motion uses zoom 1–4 and x/y 0–1. The x/y values place the crop within the zoomed picture; they have no visible effect at zoom 1.
+Each list accepts at most 64 keyframes with finite, strictly increasing `time` values between zero and the rendered clip duration. All shown fields are required. Optional `easing` on each keyframe controls its outgoing interval: `linear` (default), cubic `ease_in`, cubic `ease_out`, or smoothstep `ease_in_out`. Values use the selected curve; the first and last values hold outside their keyframe range. An empty list disables that automation. Motion uses zoom 1–4 and x/y 0–1. The x/y values place the crop within the zoomed picture; they have no visible effect at zoom 1.
 
 Motion applies after fitting and static transforms, once across the joined speed segments. Creative effects, LUTs, fades and transitions follow. Thus an animation does not restart at speed changes. Static zoom and animated zoom compound.
 
@@ -247,7 +247,7 @@ Captions use their own list rather than title layers:
 }
 ```
 
-There may be up to 2000 cues, each with at most 2000 characters, and at most 500000 caption characters in total. `start` is at least zero, `end` is at most 14400 seconds, and cues must last at least 10 ms. Overlapping cues are permitted, but check their rendered layout. Presets are `clean`, `bold` and `boxed`; positions are `bottom`, `center` and `top`. Font size is 8–512 full-canvas pixels, outline thickness 0–12, and margin 0–2000 pixels. Fill and outline colors accept `#RRGGBB` or `#RRGGBBAA`, where the final byte is opacity. A null font selects the default; a catalogued TTF/OTF ID selects a local font. Preview typography scales with the canvas.
+There may be up to 2000 cues, each with at most 2000 characters, and at most 500000 caption characters in total. `start` is at least zero, `end` is at most 14400 seconds, and cues must last at least 10 ms. Overlapping cues are permitted, but check their rendered layout. Presets are `clean`, `bold`, `boxed` and `neon`; positions are `bottom`, `center` and `top`. Font size is 8–512 full-canvas pixels, outline thickness 0–12, and margin 0–2000 pixels. Fill and outline colors accept `#RRGGBB` or `#RRGGBBAA`, where the final byte is opacity. A null font selects the default; a catalogued TTF/OTF ID selects a local font. Preview typography scales with the canvas.
 
 Captions are serialized into one literal-text ASS script and rendered through libass. Endpoints round inward to centiseconds, so a caption does not appear before its requested start or after its requested end; an interval that collapses on this grid is skipped. Unsupported imported SRT/WebVTT styling is reduced to plain text; app styling remains editable separately. Export escapes literal angle brackets and ampersands and preserves ordinary line breaks. Blank lines separate cues in SRT/WebVTT, so avoid empty paragraphs inside a cue when exchanging those formats.
 
@@ -269,3 +269,18 @@ The exact timeline revision rendered is preserved with the job. Saving new edits
 `asset_import({"path":"~/Downloads/skull.jpg"})` imports a deliberately selected local media, font or LUT file and returns its asset entry. Use an absolute local path; `~` expands to the local user's home. Supported extensionless JPEG, PNG and WebP files are recognized. Files are copied into the library when necessary; originals are preserved. Imports are limited to nonempty regular files up to 20 GiB.
 
 Install the optional offline cutout engine with `python3 setup_background.py --python python3.12`, which downloads rembg and its model. Inspect `background_removal_status`, then call `image_background_remove({"asset_id":"IMAGE_ASSET_ID"})`. Poll the returned job ID with `job_status`; use the completed `result.asset.id` in an overlay with `blend: "normal"` to retain transparency. Cutouts support still images up to 24 megapixels; GIFs are excluded. Review the generated edges before export. Once installed and cached, the model runs locally.
+
+
+## Native montage graphics (0.3)
+
+See [NATIVE_MONTAGE.md](NATIVE_MONTAGE.md) for a complete operation sequence. All new fields are optional; old timelines keep their playback and standard export profile.
+
+- Caption style and titles: `animation` = `none` / `fade` / `pop` / `slide_up`; `animation_duration` 0.01–2 seconds (default 0.16); `glow` 0–1 and `glow_color` `#RRGGBB`. Neon captions default to glow 0.7 unless explicitly overridden. Entries/exits are shortened to fit short cues. Word cues retain their individual start/end times; animation never starts ahead of a cue. ASS rounds start inward to the next centisecond and end inward to the previous centisecond. Text is always literal, including ASS-looking input.
+- Animated titles use x/y as their **center** in normalized canvas coordinates; legacy static titles keep their previous placement. Turn off `box` for clear neon lettering. Custom title and caption fonts can coexist.
+- `accents`: at most 128 objects with unique IDs. `kind` is `impact_ring`, `spark_burst`, or `light_sweep`; `start` is output-timeline seconds, `duration` 0.02–10 seconds (default 0.4), `size` 0.02–2 of canvas width (default 0.25), center x/y 0–1, color `#RRGGBB`, opacity 0–1, rotation −180–180. A sweep traverses the canvas horizontally at the supplied vertical center; it overscans the picture edges. Accents never extend timeline duration. `add_accent`, `update_accent`, and `remove_accent` use the same atomic revision checks as other layer operations. Accents render below animated titles and captions in a single ASS export pass, after footage and image overlays.
+- `captions_transcribe` accepts `mode: "phrases"` (default) or `"words"`. Word mode uses real model timestamps, skips words without valid timing, and does not distribute phrase duration evenly. Music still requires checking the draft against the audio. Manually corrected/imported cue times are authoritative.
+- Clip `interpolation`: `duplicate` (default) or `optical_flow`. Interpolation runs separately inside each source speed segment when effective source cadence falls below output cadence. Scene detection avoids interpolating across detected cuts. It synthesizes motion, can warp HUD/occlusion boundaries, and costs extra render time. It does not recover detail absent from the source or guarantee perfect VFR cadence.
+- Clip `motion_blur`: 0–1 (default 0). For moving footage, sample at twice output fps, use optical flow when source cadence is insufficient, blend two adjacent samples, then return to output fps. Applied before clip effects, transitions, titles and captions. A small value gives a short exposure; 1 equally weights two samples. Frozen clips and still images ignore this setting. This is a two-sample approximation, not a long multi-frame echo trail.
+- Project `export_profile`: `standard` (default) uses H.264 CRF 16 intermediate / 18 final; `high` uses 12 / 16. Preview stays CRF 19 / 23 and at most 960 pixels on the longest edge. Set via `set_export_profile {export_profile:"high"}` or project save. High quality uses more disk space and cannot restore missing source detail.
+
+`effects_list` now describes accents, caption presets, animations, easing, interpolation modes and export profiles. `render_plan` includes source/effective/output cadence per moving clip, profile, final CRF, accent count, and interpolation/ghosting warnings. Freeze clips are intentionally excluded from motion-cadence warnings.

@@ -10,10 +10,13 @@ Framedrop lets an AI agent assemble and render edits through MCP while you inspe
 
 - **Freeze frames:** choose a source timestamp and hold duration. Native freezes are silent, so an alarm or sound effect can play by itself.
 - **Callouts:** draw red arrows, circles/ellipses, and rectangles directly on a timed shapes track. No external image editor needed.
-- **Motion:** animate pan and zoom with linear keyframes, including on a freeze frame.
+- **Motion:** animate pan and zoom with linear or eased keyframes, including on a freeze frame.
+- **Native montage graphics:** animate individual neon lyric words and titles with smooth pop, fade, or slide entries. Place impact rings, spark bursts, and light sweeps at kills and beats without preparing overlay videos.
+- **Smooth playback:** optional optical-flow interpolation for slow footage, plus motion-compensated two-sample blur. Render plans flag repeated-frame cadence and full-length ghost trails.
+- **Quality:** standard or high-quality export profiles; the latter reduces compression in intermediate passes and the final encode.
 - **Effects:** 28 native effects, including shake, impact, RGB split, glow, pixelation, neon edges, posterization, echo trails, scanlines, and inversion. Limit each effect to a precise time window.
 - **Audio:** mix source sound, music, and effects; align sounds with a freeze; mute tracks; automate gain with keyframes; use fades and loudness normalization.
-- **Captions:** edit styled caption cues, import/export SRT or VTT, and generate offline Whisper drafts. Select a cached tiny, base, small, medium, or large-v3 model. Review drafts before applying them.
+- **Captions:** edit styled caption cues, import/export SRT or VTT, and generate offline Whisper drafts as phrases or individual timestamped words. Select a cached tiny, base, small, medium, or large-v3 model. Review drafts before applying them.
 - **Images:** import local files, including JPEGs without an extension; remove backgrounds with an optional local model; composite transparent PNGs and other overlays.
 - **Editing:** trim/reorder clips, piecewise speed ramps, color adjustment, LUTs, titles, transitions, revision history, and preview/final H.264/AAC export.
 
@@ -75,7 +78,7 @@ framedrop render PROJECT_ID --plan
 framedrop render PROJECT_ID --quality final --wait
 ```
 
-See the [quickstart](docs/QUICKSTART.md) for an end-to-end death-freeze edit, and the [timeline reference](docs/TIMELINE.md) for exact fields and examples.
+See the [quickstart](docs/QUICKSTART.md) for an end-to-end death-freeze edit, and the [timeline reference](docs/TIMELINE.md) for exact fields and examples. The [native montage recipe](docs/NATIVE_MONTAGE.md) covers animated lyrics, kill accents, motion blur, and quality settings.
 
 ## Local storage and limits
 
