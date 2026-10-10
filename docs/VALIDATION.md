@@ -6,6 +6,7 @@ The generated-media regression checks exercise actual FFmpeg output, not only fi
 python3 -m unittest discover -s tests -p 'test_advanced_engine.py' -v
 python3 -m unittest discover -s tests -p 'test_engine.py' -v
 python3 -m unittest discover -s tests -p 'test_advanced_effects.py' -v
+python3 -m unittest discover -s tests -p 'test_overlay_batches.py' -v
 ```
 
 Verified feature suites:
@@ -15,8 +16,9 @@ Verified feature suites:
 | Advanced engine | 8 | Native freeze matches the source frame and remains silent, near-EOF capture, motion across retimed segments, transition integration, sample-accurate clip/loop envelopes, endpoint behavior, malformed input, maximum 64-keyframe expressions |
 | Existing engine | 13 | All native effect and transition recipes, heterogeneous clips, speed segments, overlays, transforms, LUTs, titles, captions, silence, cancellation and source-output protection |
 | Advanced effects and shapes | 13 | Timed effects preserve exact inactive pixels, exclusive end boundaries and duration, frame rounding, flash window anchoring, echo trails, arrow direction, ellipse/rectangle geometry, alpha, antialiasing, preview stroke scaling and PNG decoding |
+| Overlay batches | 5 | Batched PNG/ProRes alpha matches sequential layers, identical base audio, finite-source ends, loops/GIFs, fractional frame rates, blend ordering, late-overlay scheduler safety and final-frame coverage after concat timestamp rounding |
 
-The complete release suite passes 126 tests, covering persistence, revision conflicts, asset/archive handling, caption exchange, MCP protocol, service behavior, optional-model job handling, and legacy-install migration:
+The complete release suite passes 131 tests, covering persistence, revision conflicts, asset/archive handling, caption exchange, MCP protocol, service behavior, optional-model job handling, and legacy-install migration:
 
 ```bash
 python3 -m unittest discover -s tests -q

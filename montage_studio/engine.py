@@ -31,6 +31,9 @@ CAPTION_STYLE = {"preset": "clean", "font_size": 52, "font_asset_id": None,
                  "color": "#ffffff", "outline_color": "#000000", "outline": 3,
                  "position": "bottom", "margin": 80}
 COLOR_DEFAULTS = {"brightness": 0, "contrast": 1, "saturation": 1, "gamma": 1}
+# Bound simultaneously decoded alpha streams while avoiding an intermediate
+# full-timeline encode for every normal overlay. Other blend modes stay isolated.
+NORMAL_OVERLAY_BATCH_SIZE = 4
 
 
 class RenderError(RuntimeError):
@@ -599,6 +602,75 @@ def _safe_link(source, destination):
     return destination.name
 
 
+def _overlay_batches(overlays, duration):
+    """Group consecutive active normal layers without reordering blend modes."""
+    batch = []
+    for index, overlay in enumerate(overlays):
+        if min(float(overlay["duration"]), duration-float(overlay.get("start", 0))) <= 0:
+            continue
+        if overlay.get("blend", "screen") != "normal":
+            if batch:
+                yield batch
+                batch = []
+            yield [(index, overlay)]
+        else:
+            batch.append((index, overlay))
+            if len(batch) == NORMAL_OVERLAY_BATCH_SIZE:
+                yield batch
+                batch = []
+    if batch:
+        yield batch
+
+
+def _overlay_input_duration(overlay, asset, length, fps):
+    # Concatenated Matroska sections have millisecond time bases. Their last
+    # frame can be a few ms later than its nominal output-frame timestamp;
+    # framesync must still find an opaque frame rather than trailing padding.
+    # Decode a little extra only for inexhaustible still/loop inputs. The enable
+    # expression remains authoritative, and finite source ends stay unchanged.
+    return length+2/fps if _is_image(asset) or overlay.get("loop") else length
+
+
+def _normal_overlay_batch(runner, base, batch, resolve_asset, cache, width, fps, duration, quality, output):
+    """Composite bounded normal-alpha layers in one pass, retaining base audio.
+
+    Every overlay still begins at timestamp zero with transparent leading and
+    trailing frames. Merely shifting its first PTS into the future can deadlock
+    the FFmpeg 7/8 scheduler when the unchanged base audio fills its queue.
+    """
+    args, graph = ["-i", str(base)], ["[0:v]setpts=PTS-STARTPTS[bg0]"]
+    for slot, (_, overlay) in enumerate(batch, 1):
+        asset = _asset(overlay["asset_id"], resolve_asset, cache)
+        start = float(overlay.get("start", 0))
+        length = min(float(overlay["duration"]), duration-start)
+        if _is_image(asset):
+            args += ["-loop", "1", "-framerate", f"{fps:.9f}"]
+        else:
+            if overlay.get("loop"):
+                args += ["-stream_loop", "-1"]
+            args += ["-ss", f"{float(overlay.get('in', 0)):.9f}"]
+        coverage = _overlay_input_duration(overlay, asset, length, fps)
+        args += ["-t", f"{coverage:.9f}", "-i", asset["path"]]
+        overlay_width = max(2, round(width*float(overlay.get("width", 1))/2)*2)
+        x, y = float(overlay.get("x", .5)), float(overlay.get("y", .5))
+        opacity = float(overlay.get("opacity", .6))
+        # Keep framesync coverage beyond the final base timestamp as well as
+        # decoding it; trimming this stream at duration would discard the fix.
+        padded_duration = duration+2/fps
+        graph.append(f"[{slot}:v]setpts=PTS-STARTPTS,fps={fps:.9f},scale={overlay_width}:-2,setsar=1,format=rgba,"
+                     f"colorchannelmixer=aa={opacity:.9f},tpad=start_mode=add:start_duration={start:.9f}:"
+                     f"stop_mode=add:stop_duration={duration:.9f}:color=black@0,trim=duration={padded_duration:.9f},"
+                     f"setpts=PTS-STARTPTS[ov{slot}]")
+        enabled = f"gte(t,{start:.9f})*lt(t,{start+length:.9f})"
+        # Match the existing per-layer pixel format and placement semantics;
+        # the omitted lossy encode is the only intentional visual difference.
+        graph.append(f"[bg{slot-1}][ov{slot}]overlay=x='(W-w)*{x:.9f}':y='(H-h)*{y:.9f}':"
+                     f"eof_action=pass:repeatlast=0:enable='{enabled}',format=yuv420p[bg{slot}]")
+    runner.run(args+["-filter_complex", ";".join(graph), "-map", f"[bg{len(batch)}]", "-map", "0:a",
+                     *_codec(quality), "-t", f"{duration:.9f}", str(output)], duration,
+               f"Compositing normal overlays {batch[0][0]+1}–{batch[-1][0]+1} in one pass")
+
+
 def _effect_pass(runner, input_path, output, clip, asset_cache, resolve_asset, width, height, fps, duration, quality, prefix):
     graph, source = [], "0:v"
     if clip.get("motion"):
@@ -737,8 +809,9 @@ def render_project(project, resolve_asset, output_path, work_dir, quality="previ
     width, height, fps, duration = plan["width"], plan["height"], plan["fps"], plan["duration"]
     clips = project["clips"]
     lengths, transitions = _timings(project, fps)
+    overlay_batches = list(_overlay_batches(project.get("overlays", []), duration))
     steps = sum(len(_segments(c, fps))+int(bool(c.get("segments")))+int(_needs_effect_pass(c)) for c in clips)
-    steps += len(clips)+sum(t>0 for t in transitions)+len(project.get("overlays", []))+len(project.get("shapes", []))+2*len(project.get("audio", []))+2
+    steps += len(clips)+sum(t>0 for t in transitions)+len(overlay_batches)+len(project.get("shapes", []))+2*len(project.get("audio", []))+2
     runner = _Runner(work, progress, cancelled, steps)
     normalized = []
     background = "0x"+project.get("canvas", {}).get("background", "#101014")[1:]
@@ -815,8 +888,14 @@ def render_project(project, resolve_asset, output_path, work_dir, quality="previ
             sections.append(target)
     base = work/"timeline.mkv"
     _concat(runner, sections, str(base), duration, "Assembling the timeline")
-    for index, overlay in enumerate(project.get("overlays", [])):
+    for batch in overlay_batches:
         runner.check_cancelled()
+        if len(batch) > 1:
+            target = work/f"overlays-{batch[0][0]:03d}-{batch[-1][0]:03d}.mkv"
+            _normal_overlay_batch(runner, base, batch, resolve_asset, cache, width, fps, duration, quality, target)
+            base = target
+            continue
+        index, overlay = batch[0]
         start = float(overlay.get("start", 0))
         length = min(float(overlay["duration"]), duration-start)
         if length <= 0:
@@ -829,7 +908,8 @@ def render_project(project, resolve_asset, output_path, work_dir, quality="previ
             args += ["-stream_loop", "-1"]
         if not _is_image(asset):
             args += ["-ss", f"{float(overlay.get('in',0)):.9f}"]
-        args += ["-t", f"{length:.9f}", "-i", asset["path"]]
+        coverage = _overlay_input_duration(overlay, asset, length, fps)
+        args += ["-t", f"{coverage:.9f}", "-i", asset["path"]]
         blend = overlay.get("blend", "screen")
         overlay_width = max(2, round(width*float(overlay.get("width", 1))/2)*2)
         x, y, opacity = float(overlay.get("x", .5)), float(overlay.get("y", .5)), float(overlay.get("opacity", .6))
@@ -843,7 +923,7 @@ def render_project(project, resolve_asset, output_path, work_dir, quality="previ
             # can deadlock FFmpeg 7/8's threaded scheduler when base audio fills its
             # queue while the video filter waits for the delayed second stream.
             # Transparent/black leading frames remove that queue dependency.
-            graph = preparation+f",tpad=start_mode=add:start_duration={start:.9f}:stop_mode=add:stop_duration={duration:.9f}:color=black@0,trim=duration={duration:.9f},setpts=PTS-STARTPTS[ov];[0:v]setpts=PTS-STARTPTS[bg];[bg][ov]overlay=x='(W-w)*{x:.9f}':y='(H-h)*{y:.9f}':eof_action=pass:repeatlast=0:enable='{enabled}',format=yuv420p[v]"
+            graph = preparation+f",tpad=start_mode=add:start_duration={start:.9f}:stop_mode=add:stop_duration={duration:.9f}:color=black@0,trim=duration={duration+2/fps:.9f},setpts=PTS-STARTPTS[ov];[0:v]setpts=PTS-STARTPTS[bg];[bg][ov]overlay=x='(W-w)*{x:.9f}':y='(H-h)*{y:.9f}':eof_action=pass:repeatlast=0:enable='{enabled}',format=yuv420p[v]"
         else:
             mode = {"screen": "screen", "add": "addition", "lighten": "lighten"}[blend]
             graph = preparation+f"[ov];color=c=black:s={width}x{height}:r={fps:.9f}:d={length:.9f},format=rgba[black];[black][ov]overlay=x='(W-w)*{x:.9f}':y='(H-h)*{y:.9f}':eof_action=pass:repeatlast=0,format=gbrp,tpad=start_mode=add:start_duration={start:.9f}:stop_mode=add:stop_duration={duration:.9f}:color=black,trim=duration={duration:.9f},setpts=PTS-STARTPTS[plate];[0:v]format=gbrp,setpts=PTS-STARTPTS[bg];[bg][plate]blend=all_mode={mode}:eof_action=pass:repeatlast=0:enable='{enabled}',format=yuv420p[v]"

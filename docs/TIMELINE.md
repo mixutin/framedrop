@@ -171,6 +171,8 @@ Audio is mixed at 48 kHz stereo. `normalize_audio: true` applies single-pass lou
 
 A finite overlay disappears when its source ends or its selected timeline range ends; it does not freeze indefinitely. `loop: true` repeats a video source. Still images naturally fill the specified duration. Animated GIFs are finite media rather than indefinitely looped stills.
 
+Consecutive `normal` overlays render in batches of up to four, preserving list order while reducing intermediate video encodes. Other blend modes keep separate passes. Still and looping inputs retain a small decoding margin so a full-duration layer covers the final frame after clip-concatenation rounding; its visible timing remains bounded by the requested interval.
+
 ## Arrows, circles and rectangles
 
 ```json
