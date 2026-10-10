@@ -631,6 +631,14 @@ def _overlay_input_duration(overlay, asset, length, fps):
     return length+2/fps if _is_image(asset) or overlay.get("loop") else length
 
 
+def _overlay_base_clock(fps):
+    # Normalization has already produced one frame per canvas tick. Container
+    # duration rounding during concat can accumulate beyond the overlay's end
+    # on some FFmpeg versions. Restore that intended clock without duplicating
+    # or dropping pictures, so every layer sees the exported frame timestamps.
+    return f"settb=AVTB,setpts=N/({fps:.9f}*TB)"
+
+
 def _normal_overlay_batch(runner, base, batch, resolve_asset, cache, width, fps, duration, quality, output):
     """Composite bounded normal-alpha layers in one pass, retaining base audio.
 
@@ -638,7 +646,7 @@ def _normal_overlay_batch(runner, base, batch, resolve_asset, cache, width, fps,
     trailing frames. Merely shifting its first PTS into the future can deadlock
     the FFmpeg 7/8 scheduler when the unchanged base audio fills its queue.
     """
-    args, graph = ["-i", str(base)], ["[0:v]setpts=PTS-STARTPTS[bg0]"]
+    args, graph = ["-i", str(base)], [f"[0:v]{_overlay_base_clock(fps)}[bg0]"]
     for slot, (_, overlay) in enumerate(batch, 1):
         asset = _asset(overlay["asset_id"], resolve_asset, cache)
         start = float(overlay.get("start", 0))
@@ -923,10 +931,10 @@ def render_project(project, resolve_asset, output_path, work_dir, quality="previ
             # can deadlock FFmpeg 7/8's threaded scheduler when base audio fills its
             # queue while the video filter waits for the delayed second stream.
             # Transparent/black leading frames remove that queue dependency.
-            graph = preparation+f",tpad=start_mode=add:start_duration={start:.9f}:stop_mode=add:stop_duration={duration:.9f}:color=black@0,trim=duration={duration+2/fps:.9f},setpts=PTS-STARTPTS[ov];[0:v]setpts=PTS-STARTPTS[bg];[bg][ov]overlay=x='(W-w)*{x:.9f}':y='(H-h)*{y:.9f}':eof_action=pass:repeatlast=0:enable='{enabled}',format=yuv420p[v]"
+            graph = preparation+f",tpad=start_mode=add:start_duration={start:.9f}:stop_mode=add:stop_duration={duration:.9f}:color=black@0,trim=duration={duration+2/fps:.9f},setpts=PTS-STARTPTS[ov];[0:v]{_overlay_base_clock(fps)}[bg];[bg][ov]overlay=x='(W-w)*{x:.9f}':y='(H-h)*{y:.9f}':eof_action=pass:repeatlast=0:enable='{enabled}',format=yuv420p[v]"
         else:
             mode = {"screen": "screen", "add": "addition", "lighten": "lighten"}[blend]
-            graph = preparation+f"[ov];color=c=black:s={width}x{height}:r={fps:.9f}:d={length:.9f},format=rgba[black];[black][ov]overlay=x='(W-w)*{x:.9f}':y='(H-h)*{y:.9f}':eof_action=pass:repeatlast=0,format=gbrp,tpad=start_mode=add:start_duration={start:.9f}:stop_mode=add:stop_duration={duration:.9f}:color=black,trim=duration={duration:.9f},setpts=PTS-STARTPTS[plate];[0:v]format=gbrp,setpts=PTS-STARTPTS[bg];[bg][plate]blend=all_mode={mode}:eof_action=pass:repeatlast=0:enable='{enabled}',format=yuv420p[v]"
+            graph = preparation+f"[ov];color=c=black:s={width}x{height}:r={fps:.9f}:d={length:.9f},format=rgba[black];[black][ov]overlay=x='(W-w)*{x:.9f}':y='(H-h)*{y:.9f}':eof_action=pass:repeatlast=0,format=gbrp,tpad=start_mode=add:start_duration={start:.9f}:stop_mode=add:stop_duration={duration:.9f}:color=black,trim=duration={duration:.9f},setpts=PTS-STARTPTS[plate];[0:v]format=gbrp,{_overlay_base_clock(fps)}[bg];[bg][plate]blend=all_mode={mode}:eof_action=pass:repeatlast=0:enable='{enabled}',format=yuv420p[v]"
         target = work/f"overlay-{index:03d}.mkv"
         runner.run(args+["-filter_complex", graph, "-map", "[v]", "-map", "0:a", *_codec(quality), "-t", f"{duration:.9f}", str(target)],
                    duration, f"Compositing overlay {index+1}/{len(project.get('overlays',[]))}")
